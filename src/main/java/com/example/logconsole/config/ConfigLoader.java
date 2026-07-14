@@ -1,9 +1,18 @@
 package com.example.logconsole.config;
 
-import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.gson.Gson;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParseException;
+import com.google.gson.JsonParser;
 
 import java.io.IOException;
+import java.io.Reader;
+import java.lang.reflect.Field;
+import java.lang.reflect.Modifier;
+import java.lang.reflect.ParameterizedType;
+import java.lang.reflect.Type;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.ZoneId;
@@ -13,13 +22,75 @@ import java.util.LinkedHashMap;
 import java.util.regex.Pattern;
 
 public final class ConfigLoader {
-    private final ObjectMapper mapper = new ObjectMapper()
-            .enable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
+    private final Gson gson = new Gson();
 
     public AppConfig load(Path path) throws IOException {
-        AppConfig config = mapper.readValue(Files.newInputStream(path), AppConfig.class);
+        AppConfig config;
+        try (Reader reader = Files.newBufferedReader(path, StandardCharsets.UTF_8)) {
+            JsonElement document = JsonParser.parseReader(reader);
+            rejectUnknownProperties(document, AppConfig.class, "$");
+            config = gson.fromJson(document, AppConfig.class);
+        } catch (JsonParseException e) {
+            throw new IOException("Invalid JSON configuration: " + path, e);
+        }
         validate(config);
         return config;
+    }
+
+    /** Gson ignores unknown fields, so retain the strict configuration contract Jackson provided. */
+    private static void rejectUnknownProperties(JsonElement value, Type type, String path) throws IOException {
+        if (value == null || value.isJsonNull()) return;
+        Class<?> rawType = rawType(type);
+        if (Map.class.isAssignableFrom(rawType)) {
+            if (!value.isJsonObject()) return;
+            Type valueType = typeArgument(type, 1);
+            for (Map.Entry<String, JsonElement> entry : value.getAsJsonObject().entrySet()) {
+                rejectUnknownProperties(entry.getValue(), valueType, path + "." + entry.getKey());
+            }
+            return;
+        }
+        if (Iterable.class.isAssignableFrom(rawType)) {
+            if (!value.isJsonArray()) return;
+            Type itemType = typeArgument(type, 0);
+            int index = 0;
+            for (JsonElement item : value.getAsJsonArray()) {
+                rejectUnknownProperties(item, itemType, path + "[" + index++ + "]");
+            }
+            return;
+        }
+        if (!isConfigurationType(rawType) || !value.isJsonObject()) return;
+
+        Map<String, Field> fields = new LinkedHashMap<String, Field>();
+        for (Field field : rawType.getFields()) {
+            if (!Modifier.isStatic(field.getModifiers())) fields.put(field.getName(), field);
+        }
+        JsonObject object = value.getAsJsonObject();
+        for (Map.Entry<String, JsonElement> entry : object.entrySet()) {
+            Field field = fields.get(entry.getKey());
+            if (field == null) throw new IOException("Unknown configuration property: " + path + "." + entry.getKey());
+            rejectUnknownProperties(entry.getValue(), field.getGenericType(), path + "." + entry.getKey());
+        }
+    }
+
+    private static boolean isConfigurationType(Class<?> type) {
+        return type == AppConfig.class || type.getEnclosingClass() == AppConfig.class;
+    }
+
+    private static Class<?> rawType(Type type) {
+        if (type instanceof Class<?>) return (Class<?>) type;
+        if (type instanceof ParameterizedType) {
+            Type raw = ((ParameterizedType) type).getRawType();
+            if (raw instanceof Class<?>) return (Class<?>) raw;
+        }
+        return Object.class;
+    }
+
+    private static Type typeArgument(Type type, int index) {
+        if (type instanceof ParameterizedType) {
+            Type[] arguments = ((ParameterizedType) type).getActualTypeArguments();
+            if (index < arguments.length) return arguments[index];
+        }
+        return Object.class;
     }
 
     public void validate(AppConfig config) {

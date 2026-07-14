@@ -5,10 +5,14 @@ import com.example.logconsole.http.RangeHttpClient;
 import com.example.logconsole.http.RangeResponse;
 import com.example.logconsole.http.RemoteMetadata;
 import com.example.logconsole.model.ExpandedSource;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+import com.google.gson.JsonParseException;
 
 import java.io.IOException;
 import java.io.OutputStream;
+import java.io.Reader;
+import java.io.Writer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -24,7 +28,7 @@ public final class DownloadStager {
 
     private final RangeHttpClient client;
     private final AppConfig.DownloadConfig settings;
-    private final ObjectMapper mapper = new ObjectMapper();
+    private final Gson gson = new GsonBuilder().setPrettyPrinting().create();
 
     public DownloadStager(RangeHttpClient client, AppConfig.DownloadConfig settings) {
         this.client = client;
@@ -81,13 +85,16 @@ public final class DownloadStager {
 
     private DownloadCheckpoint readCheckpoint(Path path) {
         if (!Files.isRegularFile(path)) return null;
-        try { return mapper.readValue(path.toFile(), DownloadCheckpoint.class); }
-        catch (IOException ignored) { return null; }
+        try (Reader reader = Files.newBufferedReader(path, StandardCharsets.UTF_8)) {
+            return gson.fromJson(reader, DownloadCheckpoint.class);
+        } catch (IOException | JsonParseException ignored) { return null; }
     }
 
     private void writeCheckpoint(Path path, DownloadCheckpoint checkpoint) throws IOException {
         Path temporary = path.resolveSibling(path.getFileName().toString() + ".tmp");
-        mapper.writerWithDefaultPrettyPrinter().writeValue(temporary.toFile(), checkpoint);
+        try (Writer writer = Files.newBufferedWriter(temporary, StandardCharsets.UTF_8)) {
+            gson.toJson(checkpoint, writer);
+        }
         Files.move(temporary, path, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
     }
 
