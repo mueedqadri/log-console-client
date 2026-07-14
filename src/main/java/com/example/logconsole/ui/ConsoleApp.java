@@ -10,7 +10,6 @@ import com.example.logconsole.http.RangeHttpClient;
 import com.example.logconsole.http.StatusService;
 import com.example.logconsole.model.ApplicationStatus;
 import com.example.logconsole.model.ExpandedSource;
-import com.example.logconsole.stream.RecordFilter;
 import org.jline.reader.LineReader;
 import org.jline.terminal.Terminal;
 
@@ -20,10 +19,8 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 public final class ConsoleApp {
     private final AppConfig config;
@@ -51,7 +48,7 @@ public final class ConsoleApp {
         List<ApplicationStatus> statuses = new StatusService(config, client).refresh();
         while (true) {
             int action = menu.select(renderer.dashboard(statuses), Arrays.asList(
-                    "Download logs", "Stream today's log", "Refresh status", "Change username", "Quit"));
+                    "Download today's logs", "Stream today's log", "Refresh status", "Change username", "Quit"));
             if (action < 0 || action == 4) return;
             try {
                 if (action == 0) download();
@@ -80,31 +77,14 @@ public final class ConsoleApp {
         AppConfig.ApplicationConfig application = config.applications.get(applicationId);
         AppConfig.EnvironmentConfig environment = config.environments.get(application.environment);
         LocalDate today = LocalDate.now(ZoneId.of(environment.timezone));
-        String dateValue = lineReader.readLine("Date [today or yyyy-MM-dd] (today): ").trim();
-        boolean current = dateValue.isEmpty() || "today".equalsIgnoreCase(dateValue);
-        LocalDate date = current ? today : LocalDate.parse(dateValue);
-        List<ExpandedSource> sources = current ? expander.expandCurrent(applicationId) : expander.expandArchive(applicationId, date);
-        terminal.writer().println("\nSources (all selected by default):");
-        for (int i = 0; i < sources.size(); i++) terminal.writer().println("  [x] " + (i + 1) + ". " + sources.get(i).getLabel());
+        List<ExpandedSource> sources = expander.expandCurrent(applicationId);
+        terminal.writer().println("\nDownloading all current sources for " + today + "...");
         terminal.flush();
-        String deselected = lineReader.readLine("Numbers to deselect, comma-separated (Enter keeps all): ").trim();
-        Set<Integer> excluded = parseNumbers(deselected, sources.size());
-        List<ExpandedSource> selected = new ArrayList<ExpandedSource>();
-        for (int i = 0; i < sources.size(); i++) if (!excluded.contains(i + 1)) selected.add(sources.get(i));
-        String levelText = lineReader.readLine("Export levels comma-separated (blank=all): ").trim();
-        String search = lineReader.readLine("Export text filter (blank=none): ").trim();
-        RecordFilter filter = null;
-        if (!levelText.isEmpty() || !search.isEmpty()) {
-            Set<String> levels = new LinkedHashSet<String>();
-            if (!levelText.isEmpty()) for (String level : levelText.split(",")) levels.add(level.trim().toUpperCase());
-            filter = new RecordFilter(levels, search);
-        }
-        boolean overwrite = "y".equalsIgnoreCase(lineReader.readLine("Overwrite existing outputs if needed? [y/N]: ").trim());
         DownloadService service = new DownloadService(config, client);
-        List<Path> output = service.download(applicationId, date, selected, filter, overwrite,
+        List<Path> output = service.download(applicationId, today, sources,
                 new DownloadStager.Progress() {
                     @Override public void update(ExpandedSource source, long completed, long total) {
-                        terminal.writer().print("\rStaging " + source.getLabel() + " " + completed + "/" + total + " bytes");
+                        renderDownloadProgress(sources.indexOf(source) + 1, sources.size(), source, completed, total);
                         terminal.flush();
                     }
                 });
@@ -131,14 +111,20 @@ public final class ConsoleApp {
         return labels;
     }
 
-    private static Set<Integer> parseNumbers(String value, int max) {
-        Set<Integer> numbers = new LinkedHashSet<Integer>();
-        if (value.isEmpty()) return numbers;
-        for (String part : value.split(",")) {
-            int number = Integer.parseInt(part.trim());
-            if (number < 1 || number > max) throw new IllegalArgumentException("Source number out of range: " + number);
-            numbers.add(number);
-        }
-        return numbers;
+    private void renderDownloadProgress(int sourceNumber, int sourceCount, ExpandedSource source,
+                                        long completed, long total) {
+        long percent = total == 0 ? 100 : Math.min(100, (completed * 100) / total);
+        int width = 28;
+        int filled = (int) ((percent * width) / 100);
+        StringBuilder bar = new StringBuilder(width);
+        for (int i = 0; i < width; i++) bar.append(i < filled ? '#' : '-');
+        terminal.writer().print("\rDownloading " + sourceNumber + "/" + sourceCount + " [" + bar + "] "
+                + percent + "% " + formatBytes(completed) + "/" + formatBytes(total) + " " + source.getLabel() + "\u001B[K");
+    }
+
+    private static String formatBytes(long bytes) {
+        if (bytes < 1024) return bytes + " B";
+        if (bytes < 1024 * 1024) return (bytes / 1024) + " KiB";
+        return String.format(java.util.Locale.ROOT, "%.1f MiB", bytes / (1024.0 * 1024.0));
     }
 }

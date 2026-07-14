@@ -5,7 +5,6 @@ import com.example.logconsole.config.TemplateEngine;
 import com.example.logconsole.config.ConfigResolver;
 import com.example.logconsole.http.RangeHttpClient;
 import com.example.logconsole.model.ExpandedSource;
-import com.example.logconsole.stream.RecordFilter;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -13,9 +12,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.LocalDate;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 
 public final class DownloadService {
     private final AppConfig config;
@@ -27,7 +24,7 @@ public final class DownloadService {
     }
 
     public List<Path> download(String applicationId, LocalDate date, List<ExpandedSource> selected,
-                               RecordFilter filter, boolean overwrite, DownloadStager.Progress progress) throws IOException {
+                               DownloadStager.Progress progress) throws IOException {
         if (selected == null || selected.isEmpty()) throw new IllegalArgumentException("At least one source must be selected");
         AppConfig.ApplicationConfig application = config.applications.get(applicationId);
         String environment = application.environment;
@@ -37,65 +34,21 @@ public final class DownloadService {
                 safe(applicationId + "-" + environment + "-" + date)).normalize();
         DownloadStager stager = new DownloadStager(client, downloadConfig);
         List<StagedSource> staged = stager.stage(selected, staging, progress);
-        long rawTotal = 0;
-        for (StagedSource value : staged) rawTotal += value.getMetadata().getLength();
-        long maxBytes = application.maxOutputBytes == null ? downloadConfig.maxOutputBytes : application.maxOutputBytes;
-        Map<String, List<StagedSource>> groups = groups(application, staged, rawTotal > maxBytes);
-        Map<String, String> template = new LinkedHashMap<String, String>();
+        java.util.Map<String, String> template = new java.util.LinkedHashMap<String, String>();
         template.put("application", application.application == null ? applicationId : application.application);
         template.put("application.id", applicationId);
         template.put("environment", environment);
         template.put("date", date.format(java.time.format.DateTimeFormatter.ofPattern(application.outputDatePattern)));
         String base = safeFileName(TemplateEngine.render(application.outputFileTemplate, template));
-        if (filter != null) base = PartWriter.insertSuffix(base, ".filtered");
         Path assembledDirectory = staging.resolve("assembled");
-        List<Path> assembled = new ArrayList<Path>();
-        ChronologicalMerger merger = new ChronologicalMerger();
-        for (Map.Entry<String, List<StagedSource>> group : groups.entrySet()) {
-            String name = groups.size() == 1 && "all".equals(group.getKey())
-                    ? base : PartWriter.insertSuffix(base, "." + safe(group.getKey()));
-            assembled.addAll(merger.merge(group.getValue(), assembledDirectory, name, filter, maxBytes, true));
-        }
+        Path assembled = new SourceConcatenator().concatenate(staged, assembledDirectory, base, true);
         Files.createDirectories(outputDirectory);
-        List<Path> targets = new ArrayList<Path>();
-        for (Path source : assembled) {
-            Path target = outputDirectory.resolve(source.getFileName().toString());
-            if (Files.exists(target) && !overwrite) throw new IOException("Output already exists: " + target);
-            targets.add(target);
-        }
-        List<Path> output = new ArrayList<Path>();
-        for (int i = 0; i < assembled.size(); i++) {
-            Path source = assembled.get(i);
-            Path target = targets.get(i);
-            try {
-                if (overwrite) Files.move(source, target, java.nio.file.StandardCopyOption.ATOMIC_MOVE,
-                        java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-                else Files.move(source, target, java.nio.file.StandardCopyOption.ATOMIC_MOVE);
-            } catch (java.nio.file.AtomicMoveNotSupportedException e) {
-                if (overwrite) Files.move(source, target, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
-                else Files.move(source, target);
-            }
-            output.add(target);
-        }
+        Path output = outputDirectory.resolve(assembled.getFileName().toString());
+        move(assembled, output);
         deleteTree(staging);
-        return output;
-    }
-
-    private static Map<String, List<StagedSource>> groups(AppConfig.ApplicationConfig app,
-                                                           List<StagedSource> staged, boolean split) {
-        Map<String, List<StagedSource>> result = new LinkedHashMap<String, List<StagedSource>>();
-        if (!split) { result.put("all", staged); return result; }
-        String dimension = app.splitGroupDimension;
-        if (dimension == null && app.dimensions.containsKey("cluster")) dimension = "cluster";
-        for (StagedSource source : staged) {
-            String key = dimension == null ? source.getSource().getLocationId()
-                    : source.getSource().getDimensions().get(dimension);
-            if (key == null) throw new IllegalArgumentException("splitGroupDimension " + dimension + " is unavailable");
-            List<StagedSource> values = result.get(key);
-            if (values == null) { values = new ArrayList<StagedSource>(); result.put(key, values); }
-            values.add(source);
-        }
-        return result;
+        List<Path> published = new ArrayList<Path>();
+        published.add(output);
+        return published;
     }
 
     private static String safe(String value) {
@@ -110,6 +63,15 @@ public final class DownloadService {
             throw new IllegalArgumentException("Unsafe output filename: " + name);
         }
         return name;
+    }
+
+    private static void move(Path from, Path to) throws IOException {
+        try {
+            Files.move(from, to, java.nio.file.StandardCopyOption.ATOMIC_MOVE,
+                    java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+        } catch (java.nio.file.AtomicMoveNotSupportedException e) {
+            Files.move(from, to, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+        }
     }
 
     private static void deleteTree(Path root) throws IOException {

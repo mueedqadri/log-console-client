@@ -1,6 +1,6 @@
 # Java 8 Log Console
 
-Interactive log status, download, chronological merge, and single-source live streaming over HTTP byte ranges.
+Interactive log status, simple combined-log downloads, and single-source live streaming over HTTP byte ranges.
 
 ## Build and run
 
@@ -40,4 +40,4 @@ Passwords are resolved from `passwordEnvVar`, then prompted. Only the last usern
 
 - Menus: arrows, numbers, Enter, Esc
 - Stream: arrows, Page Up/Down, Home/End, `1`–`4` level toggles, `/` text filter, `c` compact/raw, `f` follow, Esc/`q` back
-- Downloads: all expanded sources are selected by default; filters are optional and outputs are staged resumably before chronological merge
+- Downloads: choose an application and the client downloads all of its current sources into one raw combined file, with a source header between files and a progress bar
