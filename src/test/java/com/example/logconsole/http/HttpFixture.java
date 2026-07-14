@@ -21,6 +21,7 @@ public final class HttpFixture implements AutoCloseable {
         content = text.getBytes(StandardCharsets.UTF_8);
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/test.log", new Handler(true));
+        server.createContext("/head-unsupported.log", new Handler(true, false));
         server.createContext("/ignore-range.log", new Handler(false));
         server.start();
     }
@@ -39,7 +40,13 @@ public final class HttpFixture implements AutoCloseable {
 
     private final class Handler implements HttpHandler {
         private final boolean ranges;
-        Handler(boolean ranges) { this.ranges = ranges; }
+        private final boolean headSupported;
+
+        Handler(boolean ranges) { this(ranges, true); }
+        Handler(boolean ranges, boolean headSupported) {
+            this.ranges = ranges;
+            this.headSupported = headSupported;
+        }
 
         @Override public void handle(HttpExchange exchange) throws IOException {
             if (!"Basic dXNlcjpwYXNz".equals(exchange.getRequestHeaders().getFirst("Authorization"))) {
@@ -51,6 +58,10 @@ public final class HttpFixture implements AutoCloseable {
             headers.set("ETag", etag);
             headers.set("Last-Modified", "Mon, 13 Jul 2026 12:00:00 GMT");
             if ("HEAD".equals(exchange.getRequestMethod())) {
+                if (!headSupported) {
+                    respond(exchange, 405, new byte[0], null);
+                    return;
+                }
                 headers.set("Content-Length", String.valueOf(content.length));
                 exchange.sendResponseHeaders(200, -1);
                 exchange.close();

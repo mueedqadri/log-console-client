@@ -39,9 +39,24 @@ public final class RangeHttpClient {
         connection.setRequestProperty("Range", "bytes=0-0");
         try {
             int code = connection.getResponseCode();
+            if (code == 206) {
+                long length = totalLength(connection, -1);
+                if (length < 0) {
+                    throw new IOException("Partial response missing a valid Content-Range for " + safe(url));
+                }
+                drain(connection); // A valid metadata probe has at most one byte.
+                return fromHeaders(connection, code, length, true);
+            }
+            if (code == 416 && totalLength(connection, -1) == 0) {
+                // RFC 9110: an empty representation answers bytes=0-0 with "bytes */0".
+                return fromHeaders(connection, 200, 0, true);
+            }
+            if (code == 200) {
+                // The server ignored Range. Do not drain a potentially large response.
+                return fromHeaders(connection, code, contentLength(connection), false);
+            }
             drain(connection);
-            long length = totalLength(connection, contentLength(connection));
-            return fromHeaders(connection, code, length, code == 206);
+            return fromHeaders(connection, code, -1, false);
         } finally { connection.disconnect(); }
     }
 

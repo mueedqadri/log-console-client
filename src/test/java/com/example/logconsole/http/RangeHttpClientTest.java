@@ -44,6 +44,19 @@ class RangeHttpClientTest {
         }
     }
 
+    @Test void fallsBackToOneByteGetWhenHeadIsUnsupported() throws Exception {
+        try (HttpFixture fixture = new HttpFixture("content");
+             AuthContext auth = new AuthContext("user", "pass".toCharArray())) {
+            RemoteMetadata metadata = new RangeHttpClient(auth, false).metadata(
+                    new URL(fixture.baseUrl() + "head-unsupported.log"), connection());
+
+            assertTrue(metadata.isAvailable());
+            assertTrue(metadata.isRangeSupported());
+            assertEquals(fixture.content.length, metadata.getLength());
+            assertEquals(1, fixture.rangeGets.get());
+        }
+    }
+
     static AppConfig.ConnectionConfig connection() {
         AppConfig.ConnectionConfig config = new AppConfig.ConnectionConfig();
         config.connectTimeoutMillis = 1000;
