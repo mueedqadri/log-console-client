@@ -66,8 +66,14 @@ final class StreamViewer {
                 }
                 if (key == 27) {
                     int next = terminal.reader().read(35L);
-                    if (next != '[') return;
+                    // Mouse reports and terminal-specific key chords are CSI escape sequences too.
+                    // They are not navigation requests, so never let an incomplete/unknown sequence exit streaming.
+                    if (next != '[') continue;
                     int code = terminal.reader().read(35L);
+                    if (code == '<' || code == 'M') {
+                        consumeMouseReport(code);
+                        continue;
+                    }
                     if (code == 'A') {
                         follow = false;
                         if (firstRecord == 0 && session.loadOlder()) banner = "Loaded older range";
@@ -111,6 +117,13 @@ final class StreamViewer {
         } finally {
             screen.exit();
             terminal.setAttributes(savedAttributes);
+        }
+    }
+
+    private void consumeMouseReport(int initial) throws IOException {
+        for (int count = 0; count < 64; count++) {
+            int value = terminal.reader().read(35L);
+            if (value < 0 || (initial == 'M' && count == 2) || value == 'M' || value == 'm') return;
         }
     }
 }
