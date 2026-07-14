@@ -4,7 +4,15 @@ Interactive log status, download, chronological merge, and single-source live st
 
 ## Build and run
 
-Install a Java 8 JDK, then run:
+From the workspace root, install a Java 8 (or later) JDK and run:
+
+```sh
+node setup-client.js
+```
+
+The setup script is self-contained: copying just `setup-client.js` to another computer recreates this entire client project. It does not require npm dependencies and does not build the project. When ready, build manually with the Maven Wrapper; this requires JDK 8 or later and network access for Maven unless its artifacts are already cached.
+
+To run the build manually from this directory instead:
 
 ```sh
 ./mvnw verify
