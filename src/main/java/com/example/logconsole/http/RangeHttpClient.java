@@ -23,15 +23,7 @@ public final class RangeHttpClient {
     }
 
     public RemoteMetadata metadata(URL url, AppConfig.ConnectionConfig config) throws IOException {
-        HttpURLConnection connection = open(url, config, "HEAD");
-        try {
-            int code = connection.getResponseCode();
-            if (code == 405 || code == 501) return metadataViaRange(url, config);
-            if (code < 200 || code >= 300) return new RemoteMetadata(code, -1, header(connection, "ETag"),
-                    connection.getLastModified(), false);
-            return fromHeaders(connection, code, contentLength(connection),
-                    "bytes".equalsIgnoreCase(header(connection, "Accept-Ranges")));
-        } finally { connection.disconnect(); }
+        return metadataViaRange(url, config);
     }
 
     private RemoteMetadata metadataViaRange(URL url, AppConfig.ConnectionConfig config) throws IOException {

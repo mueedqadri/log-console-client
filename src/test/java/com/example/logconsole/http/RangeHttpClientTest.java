@@ -44,7 +44,7 @@ class RangeHttpClientTest {
         }
     }
 
-    @Test void fallsBackToOneByteGetWhenHeadIsUnsupported() throws Exception {
+    @Test void probesMetadataWithOneByteRangeGetWithoutUsingHead() throws Exception {
         try (HttpFixture fixture = new HttpFixture("content");
              AuthContext auth = new AuthContext("user", "pass".toCharArray())) {
             RemoteMetadata metadata = new RangeHttpClient(auth, false).metadata(
