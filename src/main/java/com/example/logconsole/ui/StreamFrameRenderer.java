@@ -117,11 +117,11 @@ final class StreamFrameRenderer {
 
     private static String footer(int width) {
         if (width >= 110) {
-            return "r refresh | Up/Down PgUp/PgDn Home/End | 1 INFO 2 DEBUG 3 WARN 4 ERROR | / filter | c raw | f follow | q back";
+            return "r refresh | Up/Down or mouse wheel scroll | 1 INFO 2 DEBUG 3 WARN 4 ERROR | / filter | c raw | q back";
         }
         if (width >= 70) {
-            return "r refresh | arrows/PgUp/PgDn | 1-4 levels | / filter | c raw | f follow | q back";
+            return "r refresh | Up/Down or mouse wheel | 1-4 levels | / filter | c raw | q back";
         }
-        return "r refresh | arrows scroll | / filter | c raw | f follow | q back";
+        return "r refresh | arrows/wheel | / filter | c raw | q back";
     }
 }

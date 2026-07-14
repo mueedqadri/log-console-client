@@ -7,6 +7,7 @@ import com.example.logconsole.model.ParsedRecord;
 import com.example.logconsole.stream.RecordFilter;
 import com.example.logconsole.stream.TailSession;
 import org.jline.terminal.Attributes;
+import org.jline.terminal.MouseEvent;
 import org.jline.reader.LineReader;
 import org.jline.terminal.Terminal;
 
@@ -43,6 +44,8 @@ final class StreamViewer {
         int pending = 0;
         String banner = "Connected - press r to refresh";
         Attributes savedAttributes = terminal.enterRawMode();
+        boolean mouseTracking = terminal.hasMouseSupport()
+                && terminal.trackMouse(Terminal.MouseTracking.Normal);
         try {
             screen.enter();
             while (true) {
@@ -64,6 +67,19 @@ final class StreamViewer {
                     else banner = "Already up to date";
                     continue;
                 }
+                // Some Windows console hosts emit extended scan codes instead of ANSI CSI arrows.
+                if (key == 0 || key == 224) {
+                    int code = terminal.reader().read(35L);
+                    if (code == 72) {
+                        follow = false;
+                        if (firstRecord == 0 && session.loadOlder()) banner = "Loaded older range";
+                        else firstRecord = Math.max(0, firstRecord - 1);
+                    } else if (code == 80) {
+                        firstRecord++;
+                        if (firstRecord >= Math.max(0, records.size() - page)) { follow = true; pending = 0; }
+                    }
+                    continue;
+                }
                 if (key == 27) {
                     int next = terminal.reader().read(35L);
                     // Mouse reports and terminal-specific key chords are CSI escape sequences too.
@@ -71,7 +87,16 @@ final class StreamViewer {
                     if (next != '[') continue;
                     int code = terminal.reader().read(35L);
                     if (code == '<' || code == 'M') {
-                        consumeMouseReport(code);
+                        MouseEvent event = terminal.readMouseEvent(code == '<' ? "\033[<" : "\033[M");
+                        if (event.getType() == MouseEvent.Type.Wheel && event.getButton() == MouseEvent.Button.WheelUp) {
+                            follow = false;
+                            if (firstRecord == 0 && session.loadOlder()) banner = "Loaded older range";
+                            else firstRecord = Math.max(0, firstRecord - 1);
+                        } else if (event.getType() == MouseEvent.Type.Wheel
+                                && event.getButton() == MouseEvent.Button.WheelDown) {
+                            firstRecord++;
+                            if (firstRecord >= Math.max(0, records.size() - page)) { follow = true; pending = 0; }
+                        }
                         continue;
                     }
                     if (code == 'A') {
@@ -81,27 +106,10 @@ final class StreamViewer {
                     } else if (code == 'B') {
                         firstRecord++;
                         if (firstRecord >= Math.max(0, records.size() - page)) { follow = true; pending = 0; }
-                    } else if (code == '5') {
-                        terminal.reader().read(35L);
-                        follow = false;
-                        if (firstRecord == 0) session.loadOlder();
-                        firstRecord = Math.max(0, firstRecord - page);
-                    } else if (code == '6') {
-                        terminal.reader().read(35L);
-                        firstRecord += page;
-                    } else if (code == 'H' || code == '1') {
-                        if (code == '1') terminal.reader().read(35L);
-                        follow = false;
-                        while (session.loadOlder()) { }
-                        firstRecord = 0;
-                    } else if (code == 'F' || code == '4') {
-                        if (code == '4') terminal.reader().read(35L);
-                        follow = true; pending = 0;
                     }
                     continue;
                 }
                 if (key == 'c') compact = !compact;
-                else if (key == 'f') { follow = true; pending = 0; }
                 else if (key == '/') {
                     screen.preparePrompt();
                     try { search = lineReader.readLine("Filter text (blank clears): ").trim(); }
@@ -115,15 +123,9 @@ final class StreamViewer {
                 }
             }
         } finally {
+            if (mouseTracking) terminal.trackMouse(Terminal.MouseTracking.Off);
             screen.exit();
             terminal.setAttributes(savedAttributes);
-        }
-    }
-
-    private void consumeMouseReport(int initial) throws IOException {
-        for (int count = 0; count < 64; count++) {
-            int value = terminal.reader().read(35L);
-            if (value < 0 || (initial == 'M' && count == 2) || value == 'M' || value == 'm') return;
         }
     }
 }
