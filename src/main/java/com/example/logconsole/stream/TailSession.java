@@ -43,7 +43,7 @@ public final class TailSession {
         loadedStart = Math.max(0, knownLength - desired);
         if (knownLength == 0) { text = ""; return; }
         RangeResponse response = client.getRange(source.getUrl(), source.getConnection(), loadedStart,
-                knownLength - 1, metadata.getEtag(), true);
+                knownLength - 1, true);
         text = new String(response.getBytes(), StandardCharsets.UTF_8);
         if (loadedStart > 0) discardLeadingPartialLine();
         trimLines();
@@ -53,7 +53,7 @@ public final class TailSession {
         if (loadedStart <= 0) return false;
         long start = Math.max(0, loadedStart - settings.chunkBytes);
         RangeResponse response = client.getRange(source.getUrl(), source.getConnection(), start,
-                loadedStart - 1, null, true);
+                loadedStart - 1, true);
         String prefix = new String(response.getBytes(), StandardCharsets.UTF_8);
         if (start > 0) {
             int newline = prefix.indexOf('\n');
@@ -81,7 +81,7 @@ public final class TailSession {
         }
         if (metadata.getLength() > knownLength) {
             RangeResponse response = client.getRange(source.getUrl(), source.getConnection(), knownLength,
-                    metadata.getLength() - 1, metadata.getEtag(), true);
+                    metadata.getLength() - 1, true);
             text += new String(response.getBytes(), StandardCharsets.UTF_8);
             knownLength = metadata.getLength();
             identity = metadata.identity();

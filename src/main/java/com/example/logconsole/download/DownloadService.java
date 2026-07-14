@@ -75,8 +75,7 @@ public final class DownloadService {
         notifyProgress(progress, sourceNumber, sourceCount, source, completed, metadata.getLength());
         while (completed < metadata.getLength()) {
             long end = Math.min(metadata.getLength() - 1, completed + chunkBytes - 1L);
-            RangeResponse response = client.getRange(source.getUrl(), source.getConnection(), completed, end,
-                    metadata.getEtag(), true);
+            RangeResponse response = client.getRange(source.getUrl(), source.getConnection(), completed, end, true);
             if (response.getBytes().length == 0) throw new IOException("Empty range response before end of source");
             writer.write(response.getBytes());
             completed += response.getBytes().length;

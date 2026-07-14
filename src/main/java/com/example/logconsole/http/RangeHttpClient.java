@@ -53,16 +53,12 @@ public final class RangeHttpClient {
     }
 
     public RangeResponse getRange(URL url, AppConfig.ConnectionConfig config, long start, long end,
-                                  String ifRange, boolean requireRange) throws IOException {
+                                  boolean requireRange) throws IOException {
         if (start < 0 || end < start) throw new IllegalArgumentException("Invalid byte range " + start + "-" + end);
         IOException last = null;
-        int failedAttempts = 0;
-        boolean retriedWithoutIfRange = false;
-        while (true) {
+        for (int attempt = 0; attempt <= config.retries; attempt++) {
             HttpURLConnection connection = open(url, config, "GET");
             connection.setRequestProperty("Range", "bytes=" + start + "-" + end);
-            String requestIfRange = retriedWithoutIfRange ? null : strongEtag(ifRange);
-            if (requestIfRange != null) connection.setRequestProperty("If-Range", requestIfRange);
             try {
                 int code = connection.getResponseCode();
                 if (code == 401 || code == 403 || code == 404 || code == 416) {
@@ -76,28 +72,15 @@ public final class RangeHttpClient {
                     RemoteMetadata metadata = fromHeaders(connection, code, total, code == 206);
                     return new RangeResponse(bytes, metadata, start, start + bytes.length - 1L);
                 } else if (code == 200 && requireRange) {
-                    String responseEtag = header(connection, "ETag");
-                    if (requestIfRange != null && !retriedWithoutIfRange
-                            && sameEtag(requestIfRange, responseEtag)) {
-                        // Some servers honor Range but incorrectly fall back to 200 whenever If-Range is present.
-                        // The matching strong ETag means retrying once without the conditional is safe.
-                        retriedWithoutIfRange = true;
-                        continue;
-                    }
-                    if (requestIfRange != null) {
-                        throw new RangeValidatorMismatchException("If-Range validator did not match the response "
-                                + "ETag for " + safe(url));
-                    }
                     throw new IOException("Server ignored Range request for " + safe(url));
                 } else {
                     throw new HttpStatusException(code, "Unexpected HTTP " + code + " for " + safe(url));
                 }
             } catch (IOException e) {
                 last = e;
-                if (e instanceof HttpStatusException || e instanceof RangeValidatorMismatchException) throw e;
+                if (e instanceof HttpStatusException) throw e;
             } finally { connection.disconnect(); }
-            if (failedAttempts >= config.retries) break;
-            backoff(failedAttempts++);
+            if (attempt < config.retries) backoff(attempt);
         }
         throw last == null ? new IOException("Range request failed for " + safe(url)) : last;
     }
@@ -143,17 +126,6 @@ public final class RangeHttpClient {
         return connection.getHeaderField(name);
     }
 
-    private static String strongEtag(String etag) {
-        if (etag == null) return null;
-        String value = etag.trim();
-        return value.length() < 2 || value.startsWith("W/") || value.charAt(0) != '"'
-                || value.charAt(value.length() - 1) != '"' ? null : value;
-    }
-
-    private static boolean sameEtag(String expected, String actual) {
-        return actual != null && expected.equals(actual.trim());
-    }
-
     private static byte[] readAll(InputStream in) throws IOException {
         try {
             ByteArrayOutputStream out = new ByteArrayOutputStream();
@@ -192,7 +164,4 @@ public final class RangeHttpClient {
         @Override public String header(AppConfig.ConnectionConfig connection) { return auth.authorizationHeader(); }
     }
 
-    private static final class RangeValidatorMismatchException extends IOException {
-        RangeValidatorMismatchException(String message) { super(message); }
-    }
 }
