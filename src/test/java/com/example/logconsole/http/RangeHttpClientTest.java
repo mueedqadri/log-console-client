@@ -1,0 +1,54 @@
+package com.example.logconsole.http;
+
+import com.example.logconsole.config.AppConfig;
+import org.junit.jupiter.api.Test;
+
+import java.io.IOException;
+import java.net.URL;
+import java.nio.charset.StandardCharsets;
+
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+class RangeHttpClientTest {
+    @Test void readsMetadataAndAuthenticatedRanges() throws Exception {
+        try (HttpFixture fixture = new HttpFixture("héllo\nworld\n");
+             AuthContext auth = new AuthContext("user", "pass".toCharArray())) {
+            RangeHttpClient client = new RangeHttpClient(auth, false);
+            AppConfig.ConnectionConfig config = connection();
+            URL url = new URL(fixture.baseUrl() + "test.log");
+            RemoteMetadata metadata = client.metadata(url, config);
+            assertTrue(metadata.isAvailable());
+            assertTrue(metadata.isRangeSupported());
+            assertEquals(fixture.content.length, metadata.getLength());
+            RangeResponse response = client.getRange(url, config, 0, 5, metadata.getEtag(), true);
+            assertArrayEquals(java.util.Arrays.copyOfRange(fixture.content, 0, 6), response.getBytes());
+        }
+    }
+
+    @Test void rejectsIgnoredRangesAndBadCredentials() throws Exception {
+        try (HttpFixture fixture = new HttpFixture("content");
+             AuthContext auth = new AuthContext("user", "pass".toCharArray())) {
+            RangeHttpClient client = new RangeHttpClient(auth, false);
+            AppConfig.ConnectionConfig config = connection();
+            assertThrows(IOException.class, () -> client.getRange(new URL(fixture.baseUrl() + "ignore-range.log"),
+                    config, 1, 2, null, true));
+        }
+        try (HttpFixture fixture = new HttpFixture("content");
+             AuthContext auth = new AuthContext("bad", "creds".toCharArray())) {
+            RemoteMetadata metadata = new RangeHttpClient(auth, false).metadata(
+                    new URL(fixture.baseUrl() + "test.log"), connection());
+            assertEquals(401, metadata.getStatusCode());
+        }
+    }
+
+    static AppConfig.ConnectionConfig connection() {
+        AppConfig.ConnectionConfig config = new AppConfig.ConnectionConfig();
+        config.connectTimeoutMillis = 1000;
+        config.readTimeoutMillis = 1000;
+        config.retries = 0;
+        return config;
+    }
+}

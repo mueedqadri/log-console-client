@@ -1,0 +1,96 @@
+{
+  "schemaVersion": 1,
+  "connections": {
+    "local": {
+      "baseUrl": "http://127.0.0.1:8080/",
+      "defaultUsername": "demo",
+      "passwordEnvVar": "LOG_CONSOLE_PASSWORD",
+      "allowInsecureHttp": false,
+      "connectTimeoutMillis": 3000,
+      "readTimeoutMillis": 10000,
+      "retries": 2,
+      "concurrency": 4
+    }
+  },
+  "environments": {
+    "demo": {
+      "displayName": "Demo",
+      "connection": "local",
+      "timezone": "America/Toronto"
+    },
+    "qa": {
+      "displayName": "QA",
+      "connection": "local",
+      "timezone": "America/Toronto"
+    }
+  },
+  "locations": {
+    "location-a": {
+      "displayName": "Location A",
+      "properties": { "code": "01", "folder": "location-a" }
+    },
+    "location-b": {
+      "displayName": "Location B",
+      "properties": { "code": "02", "folder": "location-b" }
+    }
+  },
+  "parsers": {
+    "standard": {
+      "headerRegex": "^(?<timestamp>\\d{4}-\\d{2}-\\d{2} \\d{2}:\\d{2}:\\d{2},\\d{3}) \\[ACTIVE] ExecuteThread: '[^']+' for queue: '[^']+' (?<level>INFO|DEBUG|WARN|ERROR) (?<logger>[A-Za-z0-9_.$-]+) - (?<message>.*)$",
+      "timestampPattern": "yyyy-MM-dd HH:mm:ss,SSS",
+      "timestampGroup": "timestamp",
+      "levelGroup": "level",
+      "loggerGroup": "logger",
+      "messageGroup": "message",
+      "levels": ["INFO", "DEBUG", "WARN", "ERROR"]
+    }
+  },
+  "applications": {
+    "sample-service": {
+      "displayName": "Sample Service",
+      "application": "sample.service",
+      "environment": "demo",
+      "parser": "standard",
+      "locations": ["location-a", "location-b"],
+      "dimensions": {
+        "domain": ["domain-main"],
+        "cluster": ["01", "02"],
+        "logNumber": ["01", "02"]
+      },
+      "currentPathTemplate": "demo/{location.folder}/{dimension.domain}/cluster-{dimension.cluster}/{application}-{dimension.logNumber}.log",
+      "archivePathTemplate": "demo/{location.folder}/{dimension.domain}/cluster-{dimension.cluster}/{application}-{dimension.logNumber}.{date}.log",
+      "archiveDatePattern": "yyyy-MM-dd",
+      "sourceLabelTemplate": "{environment}/{location.id}/cluster-{dimension.cluster}/log-{dimension.logNumber}",
+      "outputFileTemplate": "{application}.combined.{date}.log",
+      "outputDatePattern": "yyyy-MM-dd",
+      "splitGroupDimension": "cluster"
+    },
+    "batch-job": {
+      "displayName": "Batch Job",
+      "application": "batch.job",
+      "environment": "qa",
+      "parser": "standard",
+      "locations": ["location-a"],
+      "dimensions": {
+        "path": ["value-2"],
+        "logNumber": ["01", "02"]
+      },
+      "currentPathTemplate": "qa/{location.folder}/jobs/{dimension.path}/{application}-{dimension.logNumber}.log",
+      "archivePathTemplate": "qa/{location.folder}/jobs/{dimension.path}/{application}-{dimension.logNumber}.{date}.log",
+      "archiveDatePattern": "yyyy-MM-dd",
+      "sourceLabelTemplate": "{environment}/{location.id}/{dimension.path}/log-{dimension.logNumber}",
+      "outputFileTemplate": "{application}.combined.{date}.log",
+      "outputDatePattern": "yyyy-MM-dd"
+    }
+  },
+  "defaults": {
+    "status": { "warningBytes": 52428800, "criticalBytes": 104857600 },
+    "streaming": { "chunkBytes": 65536, "initialChunks": 4, "maxBufferedLines": 10000, "pollMillis": 1000 },
+    "download": {
+      "root": "downloads",
+      "stagingRoot": ".log-console-staging",
+      "rangeChunkBytes": 4194304,
+      "maxOutputBytes": 104857600
+    }
+  }
+}
