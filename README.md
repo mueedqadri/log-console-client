@@ -1,6 +1,6 @@
 # Java 8 Log Console
 
-Interactive log status, simple combined-log downloads, and single-source live streaming over HTTP byte ranges.
+Interactive log status, parallel combined-log downloads, and single-source log streaming over HTTP byte ranges.
 
 ## Build and run
 
@@ -39,5 +39,7 @@ Passwords are resolved from `passwordEnvVar`, then prompted. Only the last usern
 ## Main controls
 
 - Menus: arrows, numbers, Enter, Esc
-- Stream: arrows, Page Up/Down, Home/End, `1`–`4` level toggles, `/` text filter, `c` compact/raw, `f` follow, Esc/`q` back
-- Downloads: choose an application and the client downloads all of its current sources into one raw combined file, with a source header between files and a progress bar
+- Stream: arrows, Page Up/Down, Home/End, `1`–`4` level toggles, `/` text filter, `c` compact/raw, `r` fetch/refresh, `f` follow, Esc/`q` back. The viewer does not poll in the background.
+- Downloads: choose an application and the client downloads current sources in parallel with normal HTTP GET requests. Each source has its own persistent progress row; successful temporary parts are combined in source order with a source header between files.
+
+The terminal UI uses JLine capabilities on Windows Terminal, PowerShell, classic `cmd.exe`, macOS, and Linux. If cursor addressing or Unicode blocks are unavailable, progress automatically falls back to safe ASCII, append-only output. `--no-color` disables dashboard and log highlighting without disabling interactive cursor handling.

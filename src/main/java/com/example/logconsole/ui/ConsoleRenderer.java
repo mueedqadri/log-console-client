@@ -15,13 +15,13 @@ final class ConsoleRenderer {
     String dashboard(List<ApplicationStatus> statuses) {
         StringBuilder result = new StringBuilder("LOG CONSOLE  ");
         result.append(LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))).append('\n');
-        result.append(String.format("%-24s %-10s %-9s %-12s %s%n", "Application", "Env", "Sources", "Size", "Status"));
-        result.append("---------------------------------------------------------------------\n");
+        result.append(String.format("%-24s %-10s %-9s %s%n", "Application", "Env", "Sources", "Size"));
+        result.append("------------------------------------------------------------\n");
         for (ApplicationStatus status : statuses) {
-            String state = color(status.getState(), status.getState().name());
-            result.append(String.format("%-24s %-10s %d/%-7d %-12s %s",
+            String coloredSize = color(status.getState(), size(status.getTotalBytes()));
+            result.append(String.format("%-24s %-10s %d/%-7d %s",
                     trim(status.getDisplayName(), 24), status.getEnvironment(), status.getAvailable(),
-                    status.getSources(), size(status.getTotalBytes()), state));
+                    status.getSources(), coloredSize));
             if (status.getState() == ApplicationStatus.State.GRAY) result.append("  ").append(status.getDetail());
             result.append('\n');
         }

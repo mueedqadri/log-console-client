@@ -86,8 +86,7 @@
     "status": { "warningBytes": 52428800, "criticalBytes": 104857600 },
     "streaming": { "chunkBytes": 65536, "initialChunks": 4, "maxBufferedLines": 10000, "pollMillis": 1000 },
     "download": {
-      "root": "downloads",
-      "rangeChunkBytes": 4194304
+      "root": "downloads"
     }
   }
 }

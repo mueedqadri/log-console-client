@@ -5,11 +5,19 @@ import com.example.logconsole.config.AppConfig;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.Locale;
 
 public final class RangeHttpClient {
+    public interface TransferProgress {
+        void update(long completed, long total);
+    }
+
     private final AuthorizationProvider authorization;
     private final boolean debug;
 
@@ -85,6 +93,53 @@ public final class RangeHttpClient {
         throw last == null ? new IOException("Range request failed for " + safe(url)) : last;
     }
 
+    public RemoteMetadata downloadTo(URL url, AppConfig.ConnectionConfig config, Path destination,
+                                     TransferProgress progress) throws IOException {
+        IOException last = null;
+        for (int attempt = 0; attempt <= config.retries; attempt++) {
+            HttpURLConnection connection = open(url, config, "GET");
+            try {
+                int code = connection.getResponseCode();
+                if (code == 401 || code == 403 || code == 404) {
+                    throw new HttpStatusException(code, "HTTP " + code + " for " + safe(url));
+                }
+                if (code == 429 || code >= 500) {
+                    last = new IOException("Temporary HTTP " + code + " for " + safe(url));
+                } else if (code == 200) {
+                    long expected = contentLength(connection);
+                    long completed = 0;
+                    notifyProgress(progress, completed, expected);
+                    try (InputStream input = connection.getInputStream();
+                         OutputStream output = Files.newOutputStream(destination, StandardOpenOption.CREATE,
+                                 StandardOpenOption.TRUNCATE_EXISTING, StandardOpenOption.WRITE)) {
+                        byte[] buffer = new byte[8192];
+                        int read;
+                        while ((read = input.read(buffer)) >= 0) {
+                            if (Thread.currentThread().isInterrupted()) throw new IOException("Download interrupted");
+                            if (read == 0) continue;
+                            output.write(buffer, 0, read);
+                            completed += read;
+                            notifyProgress(progress, completed, expected);
+                        }
+                    }
+                    if (expected >= 0 && completed != expected) {
+                        throw new IOException("Incomplete response for " + safe(url) + ": expected "
+                                + expected + " bytes but received " + completed);
+                    }
+                    if (expected < 0) notifyProgress(progress, completed, completed);
+                    return fromHeaders(connection, code, expected < 0 ? completed : expected, false);
+                } else {
+                    throw new HttpStatusException(code, "Unexpected HTTP " + code + " for " + safe(url));
+                }
+            } catch (IOException e) {
+                last = e;
+                if (e instanceof HttpStatusException) throw e;
+            } finally { connection.disconnect(); }
+            if (attempt < config.retries) backoff(attempt);
+        }
+        throw last == null ? new IOException("Download failed for " + safe(url)) : last;
+    }
+
     private HttpURLConnection open(URL url, AppConfig.ConnectionConfig config, String method) throws IOException {
         HttpURLConnection connection = (HttpURLConnection) url.openConnection();
         connection.setRequestMethod(method);
@@ -147,6 +202,10 @@ public final class RangeHttpClient {
             while (input.read(buffer) >= 0) { }
         } catch (IOException ignored) { }
         finally { try { input.close(); } catch (IOException ignored) { } }
+    }
+
+    private static void notifyProgress(TransferProgress progress, long completed, long total) {
+        if (progress != null) progress.update(completed, total);
     }
 
     private static void backoff(int attempt) throws IOException {

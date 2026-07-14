@@ -30,6 +30,7 @@ public final class ConsoleApp {
     private final TerminalMenu menu;
     private final ConsoleRenderer renderer;
     private final SourceExpander expander;
+    private final boolean color;
 
     public ConsoleApp(AppConfig config, Terminal terminal, LineReader lineReader, CredentialManager credentials,
                       boolean color, boolean debug) {
@@ -41,6 +42,7 @@ public final class ConsoleApp {
         this.menu = new TerminalMenu(terminal);
         this.renderer = new ConsoleRenderer(color);
         this.expander = new SourceExpander(config);
+        this.color = color;
     }
 
     public void run() throws IOException {
@@ -67,7 +69,7 @@ public final class ConsoleApp {
         int selected = menu.select("Choose exact source", labels(sources));
         if (selected < 0) return;
         new StreamViewer(terminal, lineReader, client,
-                ConfigResolver.streaming(config, config.applications.get(applicationId))).open(sources.get(selected));
+                ConfigResolver.streaming(config, config.applications.get(applicationId)), color).open(sources.get(selected));
     }
 
     private void download() throws IOException {
@@ -77,18 +79,19 @@ public final class ConsoleApp {
         AppConfig.EnvironmentConfig environment = config.environments.get(application.environment);
         LocalDate today = LocalDate.now(ZoneId.of(environment.timezone));
         List<ExpandedSource> sources = expander.expandCurrent(applicationId);
-        terminal.writer().println("\nDownloading all current sources for " + today + "...");
-        terminal.flush();
         DownloadService service = new DownloadService(config, client);
-        Path output = service.download(applicationId, today, sources,
-                new DownloadService.Progress() {
-                    @Override public void update(int sourceNumber, int sourceCount, ExpandedSource source,
-                                                 long completed, long total) {
-                        renderDownloadProgress(sourceNumber, sourceCount, source, completed, total);
-                        terminal.flush();
-                    }
-                });
-        terminal.writer().println();
+        final DownloadProgressDisplay display = new DownloadProgressDisplay(terminal, sources);
+        display.open(today.toString());
+        Path output;
+        try {
+            output = service.download(applicationId, today, sources,
+                    new DownloadService.Progress() {
+                        @Override public void update(int sourceNumber, int sourceCount, ExpandedSource source,
+                                                     long completed, long total) {
+                            display.update(sourceNumber, completed, total);
+                        }
+                    });
+        } finally { display.close(); }
         terminal.writer().println("Published:\n  " + output.toAbsolutePath());
         terminal.flush();
         lineReader.readLine("Press Enter to continue...");
@@ -111,20 +114,4 @@ public final class ConsoleApp {
         return labels;
     }
 
-    private void renderDownloadProgress(int sourceNumber, int sourceCount, ExpandedSource source,
-                                        long completed, long total) {
-        long percent = total == 0 ? 100 : Math.min(100, (completed * 100) / total);
-        int width = 28;
-        int filled = (int) ((percent * width) / 100);
-        StringBuilder bar = new StringBuilder(width);
-        for (int i = 0; i < width; i++) bar.append(i < filled ? '#' : '-');
-        terminal.writer().print("\u001B[2K\u001B[1GDownloading " + sourceNumber + "/" + sourceCount + " [" + bar + "] "
-                + percent + "% " + formatBytes(completed) + "/" + formatBytes(total) + " " + source.getLabel());
-    }
-
-    private static String formatBytes(long bytes) {
-        if (bytes < 1024) return bytes + " B";
-        if (bytes < 1024 * 1024) return (bytes / 1024) + " KiB";
-        return String.format(java.util.Locale.ROOT, "%.1f MiB", bytes / (1024.0 * 1024.0));
-    }
 }

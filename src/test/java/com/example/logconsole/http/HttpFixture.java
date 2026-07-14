@@ -9,14 +9,22 @@ import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
 
 public final class HttpFixture implements AutoCloseable {
     final HttpServer server;
     public final AtomicInteger rangeGets = new AtomicInteger();
     public final AtomicInteger ifRangeGets = new AtomicInteger();
+    public final AtomicInteger fullGets = new AtomicInteger();
+    public final AtomicInteger activeFullGets = new AtomicInteger();
+    public final AtomicInteger maxActiveFullGets = new AtomicInteger();
+    public final AtomicInteger flakyGets = new AtomicInteger();
     public volatile byte[] content;
+    public volatile long fullGetDelayMillis;
     volatile String etag = "\"v1\"";
+    private final ExecutorService executor = Executors.newCachedThreadPool();
 
     public HttpFixture(String text) throws IOException {
         content = text.getBytes(StandardCharsets.UTF_8);
@@ -24,6 +32,9 @@ public final class HttpFixture implements AutoCloseable {
         server.createContext("/test.log", new Handler(true));
         server.createContext("/head-unsupported.log", new Handler(true, false));
         server.createContext("/ignore-range.log", new Handler(false));
+        server.createContext("/flaky-download.log", new FlakyHandler());
+        server.createContext("/missing.log", new MissingHandler());
+        server.setExecutor(executor);
         server.start();
     }
 
@@ -37,7 +48,7 @@ public final class HttpFixture implements AutoCloseable {
         etag = "\"v" + content.length + "\"";
     }
 
-    @Override public void close() { server.stop(0); }
+    @Override public void close() { server.stop(0); executor.shutdownNow(); }
 
     private final class Handler implements HttpHandler {
         private final boolean ranges;
@@ -72,7 +83,16 @@ public final class HttpFixture implements AutoCloseable {
             String ifRange = exchange.getRequestHeaders().getFirst("If-Range");
             if (ifRange != null) ifRangeGets.incrementAndGet();
             if (!ranges || range == null) {
-                respond(exchange, 200, content, null);
+                int active = activeFullGets.incrementAndGet();
+                updateMaximum(maxActiveFullGets, active);
+                fullGets.incrementAndGet();
+                try {
+                    if (fullGetDelayMillis > 0) {
+                        try { Thread.sleep(fullGetDelayMillis); }
+                        catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+                    }
+                    respond(exchange, 200, content, null);
+                } finally { activeFullGets.decrementAndGet(); }
                 return;
             }
             rangeGets.incrementAndGet();
@@ -88,11 +108,39 @@ public final class HttpFixture implements AutoCloseable {
             respond(exchange, 206, body, "bytes " + start + "-" + end + "/" + content.length);
         }
 
-        private void respond(HttpExchange exchange, int status, byte[] body, String contentRange) throws IOException {
-            if (contentRange != null) exchange.getResponseHeaders().set("Content-Range", contentRange);
-            exchange.sendResponseHeaders(status, body.length);
-            exchange.getResponseBody().write(body);
-            exchange.close();
+    }
+
+    private final class FlakyHandler implements HttpHandler {
+        @Override public void handle(HttpExchange exchange) throws IOException {
+            if (!"Basic dXNlcjpwYXNz".equals(exchange.getRequestHeaders().getFirst("Authorization"))) {
+                respond(exchange, 401, new byte[0], null);
+                return;
+            }
+            int attempt = flakyGets.incrementAndGet();
+            if (attempt == 1) {
+                exchange.sendResponseHeaders(200, content.length);
+                exchange.getResponseBody().write(content, 0, Math.max(1, content.length / 2));
+                exchange.close();
+            } else respond(exchange, 200, content, null);
         }
+    }
+
+    private final class MissingHandler implements HttpHandler {
+        @Override public void handle(HttpExchange exchange) throws IOException {
+            respond(exchange, 404, new byte[0], null);
+        }
+    }
+
+    private static void respond(HttpExchange exchange, int status, byte[] body, String contentRange) throws IOException {
+        if (contentRange != null) exchange.getResponseHeaders().set("Content-Range", contentRange);
+        exchange.sendResponseHeaders(status, body.length);
+        exchange.getResponseBody().write(body);
+        exchange.close();
+    }
+
+    private static void updateMaximum(AtomicInteger maximum, int value) {
+        int current;
+        do { current = maximum.get(); }
+        while (value > current && !maximum.compareAndSet(current, value));
     }
 }

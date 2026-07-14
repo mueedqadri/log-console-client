@@ -4,8 +4,6 @@ import com.example.logconsole.config.AppConfig;
 import com.example.logconsole.config.TemplateEngine;
 import com.example.logconsole.config.ConfigResolver;
 import com.example.logconsole.http.RangeHttpClient;
-import com.example.logconsole.http.RangeResponse;
-import com.example.logconsole.http.RemoteMetadata;
 import com.example.logconsole.model.ExpandedSource;
 
 import java.io.IOException;
@@ -14,10 +12,23 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.FileVisitResult;
+import java.nio.file.SimpleFileVisitor;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CancellationException;
+import java.util.concurrent.CompletionService;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorCompletionService;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 
 public final class DownloadService {
     public interface Progress {
@@ -47,39 +58,99 @@ public final class DownloadService {
         String fileName = safeFileName(TemplateEngine.render(application.outputFileTemplate, template));
         Files.createDirectories(outputDirectory);
         Path output = outputDirectory.resolve(fileName);
-        Path temporary = outputDirectory.resolve("." + fileName + ".tmp");
-        Files.deleteIfExists(temporary);
+        Path jobDirectory = Files.createTempDirectory(outputDirectory, "." + fileName + ".download-");
+        Path temporary = jobDirectory.resolve(fileName + ".tmp");
+        int concurrency = Math.max(1, Math.min(selected.size(), selected.get(0).getConnection().concurrency));
+        ExecutorService executor = Executors.newFixedThreadPool(concurrency);
+        CompletionService<StagedPart> completion = new ExecutorCompletionService<StagedPart>(executor);
+        List<Future<StagedPart>> futures = new ArrayList<Future<StagedPart>>();
         boolean complete = false;
-        try (OutputStream writer = Files.newOutputStream(temporary, StandardOpenOption.CREATE_NEW)) {
+        try {
             for (int i = 0; i < selected.size(); i++) {
-                ExpandedSource source = selected.get(i);
-                if (i > 0) writer.write(System.lineSeparator().getBytes(StandardCharsets.UTF_8));
-                writer.write(("===== SOURCE: " + source.getLabel() + " =====" + System.lineSeparator())
-                        .getBytes(StandardCharsets.UTF_8));
-                downloadSource(writer, source, i + 1, selected.size(), downloadConfig.rangeChunkBytes, progress);
+                final int sourceNumber = i + 1;
+                final ExpandedSource source = selected.get(i);
+                final Path part = jobDirectory.resolve(String.format("%04d.part", sourceNumber));
+                futures.add(completion.submit(new Callable<StagedPart>() {
+                    @Override public StagedPart call() throws Exception {
+                        client.downloadTo(source.getUrl(), source.getConnection(), part,
+                                new RangeHttpClient.TransferProgress() {
+                                    @Override public void update(long completed, long total) {
+                                        notifyProgress(progress, sourceNumber, selected.size(), source, completed, total);
+                                    }
+                                });
+                        return new StagedPart(sourceNumber - 1, part);
+                    }
+                }));
             }
+            executor.shutdown();
+            List<Path> parts = collect(completion, selected.size());
+            await(executor);
+            combine(temporary, selected, parts);
             move(temporary, output);
             complete = true;
             return output;
+        } catch (IOException e) {
+            cancel(futures, executor);
+            throw e;
+        } catch (RuntimeException e) {
+            cancel(futures, executor);
+            throw e;
         } finally {
-            if (!complete) Files.deleteIfExists(temporary);
+            if (!complete) {
+                cancel(futures, executor);
+                Files.deleteIfExists(temporary);
+            }
+            deleteTree(jobDirectory);
         }
     }
 
-    private void downloadSource(OutputStream writer, ExpandedSource source, int sourceNumber, int sourceCount,
-                                int chunkBytes, Progress progress) throws IOException {
-        RemoteMetadata metadata = client.metadata(source.getUrl(), source.getConnection());
-        if (!metadata.isAvailable()) throw new IOException("HTTP " + metadata.getStatusCode() + " for " + source.getUrl());
-        if (metadata.getLength() < 0) throw new IOException("Missing Content-Length for " + source.getUrl());
-        long completed = 0;
-        notifyProgress(progress, sourceNumber, sourceCount, source, completed, metadata.getLength());
-        while (completed < metadata.getLength()) {
-            long end = Math.min(metadata.getLength() - 1, completed + chunkBytes - 1L);
-            RangeResponse response = client.getRange(source.getUrl(), source.getConnection(), completed, end, true);
-            if (response.getBytes().length == 0) throw new IOException("Empty range response before end of source");
-            writer.write(response.getBytes());
-            completed += response.getBytes().length;
-            notifyProgress(progress, sourceNumber, sourceCount, source, completed, metadata.getLength());
+    private static List<Path> collect(CompletionService<StagedPart> completion, int count) throws IOException {
+        Path[] ordered = new Path[count];
+        for (int i = 0; i < count; i++) {
+            try {
+                StagedPart part = completion.take().get();
+                ordered[part.index] = part.path;
+            }
+            catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new IOException("Download interrupted", e);
+            } catch (CancellationException e) {
+                throw new IOException("Download cancelled", e);
+            } catch (ExecutionException e) {
+                Throwable cause = e.getCause();
+                if (cause instanceof IOException) throw (IOException) cause;
+                throw new IOException("Download worker failed", cause);
+            }
+        }
+        List<Path> result = new ArrayList<Path>();
+        for (Path path : ordered) result.add(path);
+        return result;
+    }
+
+    private static void combine(Path temporary, List<ExpandedSource> sources, List<Path> parts) throws IOException {
+        try (OutputStream writer = Files.newOutputStream(temporary, StandardOpenOption.CREATE_NEW)) {
+            for (int i = 0; i < sources.size(); i++) {
+                if (i > 0) writer.write(System.lineSeparator().getBytes(StandardCharsets.UTF_8));
+                writer.write(("===== SOURCE: " + sources.get(i).getLabel() + " =====" + System.lineSeparator())
+                        .getBytes(StandardCharsets.UTF_8));
+                Files.copy(parts.get(i), writer);
+            }
+        }
+    }
+
+    private static void cancel(List<? extends Future<?>> futures, ExecutorService executor) throws IOException {
+        for (Future<?> future : futures) if (!future.isDone()) future.cancel(true);
+        executor.shutdownNow();
+        await(executor);
+    }
+
+    private static void await(ExecutorService executor) throws IOException {
+        try {
+            while (!executor.awaitTermination(1, TimeUnit.DAYS)) { }
+        } catch (InterruptedException e) {
+            executor.shutdownNow();
+            Thread.currentThread().interrupt();
+            throw new IOException("Interrupted while closing download workers", e);
         }
     }
 
@@ -108,5 +179,28 @@ public final class DownloadService {
         } catch (java.nio.file.AtomicMoveNotSupportedException e) {
             Files.move(from, to, StandardCopyOption.REPLACE_EXISTING);
         }
+    }
+
+    private static void deleteTree(Path root) throws IOException {
+        if (!Files.exists(root)) return;
+        Files.walkFileTree(root, new SimpleFileVisitor<Path>() {
+            @Override public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
+                Files.deleteIfExists(file);
+                return FileVisitResult.CONTINUE;
+            }
+
+            @Override public FileVisitResult postVisitDirectory(Path directory, IOException failure) throws IOException {
+                if (failure != null) throw failure;
+                Files.deleteIfExists(directory);
+                return FileVisitResult.CONTINUE;
+            }
+        });
+    }
+
+    private static final class StagedPart {
+        final int index;
+        final Path path;
+
+        StagedPart(int index, Path path) { this.index = index; this.path = path; }
     }
 }

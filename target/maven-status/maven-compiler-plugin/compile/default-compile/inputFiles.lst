@@ -7,13 +7,7 @@
 /Users/mueedqadri/Documents/JavaConsole app/log-console-client/src/main/java/com/example/logconsole/config/SourceExpander.java
 /Users/mueedqadri/Documents/JavaConsole app/log-console-client/src/main/java/com/example/logconsole/config/TemplateEngine.java
 /Users/mueedqadri/Documents/JavaConsole app/log-console-client/src/main/java/com/example/logconsole/config/UserSettings.java
-/Users/mueedqadri/Documents/JavaConsole app/log-console-client/src/main/java/com/example/logconsole/download/ChronologicalMerger.java
-/Users/mueedqadri/Documents/JavaConsole app/log-console-client/src/main/java/com/example/logconsole/download/DownloadCheckpoint.java
 /Users/mueedqadri/Documents/JavaConsole app/log-console-client/src/main/java/com/example/logconsole/download/DownloadService.java
-/Users/mueedqadri/Documents/JavaConsole app/log-console-client/src/main/java/com/example/logconsole/download/DownloadStager.java
-/Users/mueedqadri/Documents/JavaConsole app/log-console-client/src/main/java/com/example/logconsole/download/FileRecordReader.java
-/Users/mueedqadri/Documents/JavaConsole app/log-console-client/src/main/java/com/example/logconsole/download/PartWriter.java
-/Users/mueedqadri/Documents/JavaConsole app/log-console-client/src/main/java/com/example/logconsole/download/StagedSource.java
 /Users/mueedqadri/Documents/JavaConsole app/log-console-client/src/main/java/com/example/logconsole/http/AuthContext.java
 /Users/mueedqadri/Documents/JavaConsole app/log-console-client/src/main/java/com/example/logconsole/http/AuthorizationProvider.java
 /Users/mueedqadri/Documents/JavaConsole app/log-console-client/src/main/java/com/example/logconsole/http/CredentialManager.java
@@ -30,5 +24,8 @@
 /Users/mueedqadri/Documents/JavaConsole app/log-console-client/src/main/java/com/example/logconsole/stream/TailSession.java
 /Users/mueedqadri/Documents/JavaConsole app/log-console-client/src/main/java/com/example/logconsole/ui/ConsoleApp.java
 /Users/mueedqadri/Documents/JavaConsole app/log-console-client/src/main/java/com/example/logconsole/ui/ConsoleRenderer.java
+/Users/mueedqadri/Documents/JavaConsole app/log-console-client/src/main/java/com/example/logconsole/ui/DownloadProgressDisplay.java
+/Users/mueedqadri/Documents/JavaConsole app/log-console-client/src/main/java/com/example/logconsole/ui/LogHighlighter.java
+/Users/mueedqadri/Documents/JavaConsole app/log-console-client/src/main/java/com/example/logconsole/ui/StreamFrameRenderer.java
 /Users/mueedqadri/Documents/JavaConsole app/log-console-client/src/main/java/com/example/logconsole/ui/StreamViewer.java
 /Users/mueedqadri/Documents/JavaConsole app/log-console-client/src/main/java/com/example/logconsole/ui/TerminalMenu.java
