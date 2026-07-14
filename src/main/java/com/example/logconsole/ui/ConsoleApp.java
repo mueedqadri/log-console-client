@@ -4,7 +4,6 @@ import com.example.logconsole.config.AppConfig;
 import com.example.logconsole.config.SourceExpander;
 import com.example.logconsole.config.ConfigResolver;
 import com.example.logconsole.download.DownloadService;
-import com.example.logconsole.download.DownloadStager;
 import com.example.logconsole.http.CredentialManager;
 import com.example.logconsole.http.RangeHttpClient;
 import com.example.logconsole.http.StatusService;
@@ -81,15 +80,16 @@ public final class ConsoleApp {
         terminal.writer().println("\nDownloading all current sources for " + today + "...");
         terminal.flush();
         DownloadService service = new DownloadService(config, client);
-        List<Path> output = service.download(applicationId, today, sources,
-                new DownloadStager.Progress() {
-                    @Override public void update(ExpandedSource source, long completed, long total) {
-                        renderDownloadProgress(sources.indexOf(source) + 1, sources.size(), source, completed, total);
+        Path output = service.download(applicationId, today, sources,
+                new DownloadService.Progress() {
+                    @Override public void update(int sourceNumber, int sourceCount, ExpandedSource source,
+                                                 long completed, long total) {
+                        renderDownloadProgress(sourceNumber, sourceCount, source, completed, total);
                         terminal.flush();
                     }
                 });
-        terminal.writer().println("\nPublished:");
-        for (Path path : output) terminal.writer().println("  " + path.toAbsolutePath());
+        terminal.writer().println();
+        terminal.writer().println("Published:\n  " + output.toAbsolutePath());
         terminal.flush();
         lineReader.readLine("Press Enter to continue...");
     }
@@ -118,8 +118,8 @@ public final class ConsoleApp {
         int filled = (int) ((percent * width) / 100);
         StringBuilder bar = new StringBuilder(width);
         for (int i = 0; i < width; i++) bar.append(i < filled ? '#' : '-');
-        terminal.writer().print("\rDownloading " + sourceNumber + "/" + sourceCount + " [" + bar + "] "
-                + percent + "% " + formatBytes(completed) + "/" + formatBytes(total) + " " + source.getLabel() + "\u001B[K");
+        terminal.writer().print("\u001B[2K\u001B[1GDownloading " + sourceNumber + "/" + sourceCount + " [" + bar + "] "
+                + percent + "% " + formatBytes(completed) + "/" + formatBytes(total) + " " + source.getLabel());
     }
 
     private static String formatBytes(long bytes) {

@@ -135,9 +135,6 @@ public final class ConfigLoader {
                     || output.contains("..") || output.contains("/") || output.contains("\\")) {
                 throw new IllegalArgumentException("Application " + entry.getKey() + " has unsafe outputFileTemplate");
             }
-            if (app.splitGroupDimension != null && !app.dimensions.containsKey(app.splitGroupDimension)) {
-                throw new IllegalArgumentException("Application " + entry.getKey() + " has unknown splitGroupDimension");
-            }
             expander.expandCurrent(entry.getKey());
             expander.expandArchive(entry.getKey(), java.time.LocalDate.of(2000, 1, 2));
         }
@@ -174,8 +171,7 @@ public final class ConfigLoader {
     }
 
     private static void validateDownload(AppConfig.DownloadConfig value) {
-        if (value != null && (value.rangeChunkBytes < 1024 || value.maxOutputBytes < 1024
-                || value.root == null || value.stagingRoot == null))
+        if (value != null && (value.rangeChunkBytes < 1024 || value.root == null))
             throw new IllegalArgumentException("Invalid download override");
     }
 }

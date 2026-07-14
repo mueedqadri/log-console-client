@@ -62,8 +62,7 @@
       "archiveDatePattern": "yyyy-MM-dd",
       "sourceLabelTemplate": "{environment}/{location.id}/cluster-{dimension.cluster}/log-{dimension.logNumber}",
       "outputFileTemplate": "{application}.combined.{date}.log",
-      "outputDatePattern": "yyyy-MM-dd",
-      "splitGroupDimension": "cluster"
+      "outputDatePattern": "yyyy-MM-dd"
     },
     "batch-job": {
       "displayName": "Batch Job",
@@ -88,9 +87,7 @@
     "streaming": { "chunkBytes": 65536, "initialChunks": 4, "maxBufferedLines": 10000, "pollMillis": 1000 },
     "download": {
       "root": "downloads",
-      "stagingRoot": ".log-console-staging",
-      "rangeChunkBytes": 4194304,
-      "maxOutputBytes": 104857600
+      "rangeChunkBytes": 4194304
     }
   }
 }

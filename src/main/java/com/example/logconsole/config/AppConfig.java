@@ -64,11 +64,9 @@ public final class AppConfig {
         public String sourceLabelTemplate = "{environment}/{location.id}";
         public String outputFileTemplate = "{application}.combined.{date}.log";
         public String outputDatePattern = "yyyy-MM-dd";
-        public String splitGroupDimension;
         public ThresholdsConfig thresholds;
         public StreamConfig streaming;
         public DownloadConfig download;
-        public Long maxOutputBytes;
     }
 
     public static final class DefaultsConfig {
@@ -91,8 +89,6 @@ public final class AppConfig {
 
     public static final class DownloadConfig {
         public String root = "downloads";
-        public String stagingRoot = ".log-console-staging";
         public int rangeChunkBytes = 4194304;
-        public long maxOutputBytes = 104857600L;
     }
 }
