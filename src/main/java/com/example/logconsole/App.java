@@ -23,7 +23,7 @@ public final class App {
             CliOptions options = CliOptions.parse(args);
             if (options.help) { System.out.println(CliOptions.usage()); return 0; }
             AppConfig config = new ConfigLoader().load(options.config);
-            try (Terminal terminal = TerminalBuilder.builder().system(true).dumb(true).build()) {
+            try (Terminal terminal = TerminalBuilder.builder().system(true).build()) {
                 LineReader reader = LineReaderBuilder.builder().terminal(terminal).build();
                 try (CredentialManager credentials = new CredentialManager(config, reader, new SettingsStore(), options.username)) {
                     boolean color = !options.noColor && !Terminal.TYPE_DUMB.equals(terminal.getType());
