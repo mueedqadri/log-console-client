@@ -44,6 +44,54 @@ class RangeHttpClientTest {
         }
     }
 
+    @Test void retriesWithoutIfRangeWhenTheServerReturns200ForTheSameStrongEtag() throws Exception {
+        try (HttpFixture fixture = new HttpFixture("content");
+             AuthContext auth = new AuthContext("user", "pass".toCharArray())) {
+            fixture.rejectConditionalRanges = true;
+            RangeHttpClient client = new RangeHttpClient(auth, false);
+            URL url = new URL(fixture.baseUrl() + "test.log");
+
+            RemoteMetadata metadata = client.metadata(url, connection());
+            RangeResponse response = client.getRange(url, connection(), 1, 3, metadata.getEtag(), true);
+
+            assertArrayEquals("ont".getBytes(StandardCharsets.UTF_8), response.getBytes());
+            assertEquals(1, fixture.ifRangeGets.get());
+            assertEquals(2, fixture.rangeGets.get());
+        }
+    }
+
+    @Test void doesNotSendAWeakEtagAsIfRange() throws Exception {
+        try (HttpFixture fixture = new HttpFixture("content");
+             AuthContext auth = new AuthContext("user", "pass".toCharArray())) {
+            fixture.etag = "W/\"v1\"";
+            fixture.honorIfRange = true;
+            RangeHttpClient client = new RangeHttpClient(auth, false);
+            URL url = new URL(fixture.baseUrl() + "test.log");
+
+            RemoteMetadata metadata = client.metadata(url, connection());
+            RangeResponse response = client.getRange(url, connection(), 1, 3, metadata.getEtag(), true);
+
+            assertArrayEquals("ont".getBytes(StandardCharsets.UTF_8), response.getBytes());
+            assertEquals(0, fixture.ifRangeGets.get());
+        }
+    }
+
+    @Test void reportsAnIfRangeMismatchInsteadOfCallingItAnIgnoredRange() throws Exception {
+        try (HttpFixture fixture = new HttpFixture("content");
+             AuthContext auth = new AuthContext("user", "pass".toCharArray())) {
+            fixture.honorIfRange = true;
+            RangeHttpClient client = new RangeHttpClient(auth, false);
+            URL url = new URL(fixture.baseUrl() + "test.log");
+
+            RemoteMetadata metadata = client.metadata(url, connection());
+            fixture.append(" updated");
+            IOException error = assertThrows(IOException.class,
+                    () -> client.getRange(url, connection(), 1, 3, metadata.getEtag(), true));
+
+            assertTrue(error.getMessage().contains("If-Range validator did not match"));
+        }
+    }
+
     @Test void probesMetadataWithOneByteRangeGetWithoutUsingHead() throws Exception {
         try (HttpFixture fixture = new HttpFixture("content");
              AuthContext auth = new AuthContext("user", "pass".toCharArray())) {

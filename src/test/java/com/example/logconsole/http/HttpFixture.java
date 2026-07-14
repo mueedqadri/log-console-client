@@ -14,8 +14,11 @@ import java.util.concurrent.atomic.AtomicInteger;
 public final class HttpFixture implements AutoCloseable {
     final HttpServer server;
     public final AtomicInteger rangeGets = new AtomicInteger();
+    public final AtomicInteger ifRangeGets = new AtomicInteger();
     public volatile byte[] content;
     volatile String etag = "\"v1\"";
+    volatile boolean rejectConditionalRanges;
+    volatile boolean honorIfRange;
 
     public HttpFixture(String text) throws IOException {
         content = text.getBytes(StandardCharsets.UTF_8);
@@ -68,7 +71,17 @@ public final class HttpFixture implements AutoCloseable {
                 return;
             }
             String range = exchange.getRequestHeaders().getFirst("Range");
+            String ifRange = exchange.getRequestHeaders().getFirst("If-Range");
+            if (ifRange != null) ifRangeGets.incrementAndGet();
             if (!ranges || range == null) {
+                respond(exchange, 200, content, null);
+                return;
+            }
+            if (rejectConditionalRanges && ifRange != null) {
+                respond(exchange, 200, content, null);
+                return;
+            }
+            if (honorIfRange && ifRange != null && !etag.equals(ifRange)) {
                 respond(exchange, 200, content, null);
                 return;
             }
